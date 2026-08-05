@@ -1,24 +1,98 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { fetchRows } from "@/lib/dispatch-api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
-  component: Index,
+  head: () => ({
+    meta: [
+      { title: "Engineer Login — Dispatch Portal" },
+      {
+        name: "description",
+        content:
+          "Sign in with your engineer credentials to view and update your assigned dispatch jobs.",
+      },
+      { property: "og:title", content: "Engineer Login — Dispatch Portal" },
+      {
+        property: "og:description",
+        content: "Sign in to view and update your assigned dispatch jobs.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: LoginPage,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
-function Index() {
+function LoginPage() {
+  const navigate = useNavigate();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const rows = await fetchRows();
+      const match = rows.find(
+        (r) =>
+          String(r[2]).trim() === username.trim() && String(r[3]).trim() === password.trim(),
+      );
+      if (!match) {
+        setError("Invalid login");
+        return;
+      }
+      localStorage.setItem("engineerId", String(match[0]));
+      localStorage.setItem("engineerName", String(match[1] ?? ""));
+      navigate({ to: "/dispatch" });
+    } catch {
+      setError("Invalid login");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <main className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Engineer login</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Sign in to see the jobs dispatched to you.
+        </p>
+
+        <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+          {error && <p className="text-sm font-medium text-destructive">{error}</p>}
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Checking…" : "Sign in"}
+          </Button>
+        </form>
+      </div>
+    </main>
   );
 }
