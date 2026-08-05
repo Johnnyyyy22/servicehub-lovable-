@@ -1,5 +1,5 @@
 export const SHEET_URL =
-  "https://script.google.com/macros/s/AKfycby4eQ0CcOE__mTwL6OUT4hzgcCeQRASagSLiEiptxVOzsFllSlQGvyIbgsdU6umKLox/exec";
+  "https://script.google.com/macros/s/AKfycbyW4tvXHQYZ3MqlQXmqxm2WMjY1ohf2eoiY2-ZwPDYhBCx9wD15RUuW7uCmf8ALQnGE/exec";
 
 export type Row = unknown[];
 
@@ -97,7 +97,8 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
   const hasHeader = looksLikeHeader(first);
   const idx = hasHeader
     ? mapByHeader(first)
-    : { engineerId: -1, engineer: 0, account: 1, model: 2, purpose: 3, remarks: 4, status: 5 };
+    : { engineerId: 1, engineer: 0, account: 2, model: 3, purpose: 4, remarks: 5, status: 6 };
+  if (hasHeader && idx.engineerId < 0) idx.engineerId = 1;
   const body = hasHeader ? rows.slice(1) : rows;
 
   const pick = (row: Row, i: number) => (i >= 0 ? String(row[i] ?? "").trim() : "");
