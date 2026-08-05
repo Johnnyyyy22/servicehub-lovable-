@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { fetchRows } from "@/lib/dispatch-api";
+import { fetchLoginRows } from "@/lib/dispatch-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,7 +38,7 @@ function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const rows = await fetchRows();
+      const rows = await fetchLoginRows();
       const u = username.trim().toLowerCase();
       const p = password.trim().toLowerCase();
       const match = rows.find(
