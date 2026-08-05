@@ -54,6 +54,7 @@ export async function fetchLoginRows(): Promise<Row[]> {
 
 export type DispatchJob = {
   rowId: string;
+  engineerId: string;
   engineer: string;
   account: string;
   model: string;
@@ -63,6 +64,7 @@ export type DispatchJob = {
 };
 
 const HEADER_HINTS: Record<keyof Omit<DispatchJob, "rowId">, string[]> = {
+  engineerId: ["engineer id", "engineerid", "eng id", "id"],
   engineer: ["engineer", "technician", "assigned"],
   account: ["account", "customer", "client"],
   model: ["model", "machine"],
@@ -94,13 +96,14 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
   const hasHeader = looksLikeHeader(first);
   const idx = hasHeader
     ? mapByHeader(first)
-    : { engineer: 0, account: 1, model: 2, purpose: 3, remarks: 4, status: 5 };
+    : { engineerId: -1, engineer: 0, account: 1, model: 2, purpose: 3, remarks: 4, status: 5 };
   const body = hasHeader ? rows.slice(1) : rows;
 
   const pick = (row: Row, i: number) => (i >= 0 ? String(row[i] ?? "").trim() : "");
 
   return body.map((row, i) => ({
     rowId: String(hasHeader ? i + 2 : i + 1),
+    engineerId: pick(row, idx.engineerId),
     engineer: pick(row, idx.engineer),
     account: pick(row, idx.account),
     model: pick(row, idx.model),
