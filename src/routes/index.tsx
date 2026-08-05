@@ -39,9 +39,12 @@ function LoginPage() {
     setLoading(true);
     try {
       const rows = await fetchRows();
+      const u = username.trim().toLowerCase();
+      const p = password.trim().toLowerCase();
       const match = rows.find(
         (r) =>
-          String(r[2]).trim() === username.trim() && String(r[3]).trim() === password.trim(),
+          String(r[2]).trim().toLowerCase() === u &&
+          String(r[3]).trim().toLowerCase() === p,
       );
       if (!match) {
         setError("Invalid login");

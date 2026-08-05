@@ -1,5 +1,5 @@
 export const SHEET_URL =
-  "https://script.google.com/macros/s/AKfycbwa5y_MWiP3CZ566QFFVaLPjcag0Tz37g7xGPEnDOqpeZaFp2JXMp-GbNoF4wXWld3Y/exec";
+  "https://script.google.com/macros/s/AKfycby4eQ0CcOE__mTwL6OUT4hzgcCeQRASagSLiEiptxVOzsFllSlQGvyIbgsdU6umKLox/exec";
 
 export type Row = unknown[];
 
