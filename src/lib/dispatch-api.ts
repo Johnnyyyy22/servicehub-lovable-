@@ -3,11 +3,18 @@ export const SHEET_URL =
 
 export type Row = unknown[];
 
+export const STATUS_OPTIONS = [
+  "Running Good",
+  "Unresponded / Backlog",
+  "Not Running / Running with Parts for Replacement",
+] as const;
+export type StatusOption = (typeof STATUS_OPTIONS)[number];
+
 function toRows(data: unknown): Row[] {
   if (!Array.isArray(data)) {
     if (data && typeof data === "object") {
       const obj = data as Record<string, unknown>;
-      for (const key of ["data", "rows", "records", "result"]) {
+      for (const key of ["data", "rows", "records", "result", "values"]) {
         if (Array.isArray(obj[key])) return toRows(obj[key]);
       }
     }
@@ -18,8 +25,13 @@ function toRows(data: unknown): Row[] {
   );
 }
 
-export async function fetchRows(): Promise<Row[]> {
-  const res = await fetch(`${SHEET_URL}?t=${Date.now()}`);
+function isBlank(row: Row) {
+  return row.every((c) => String(c ?? "").trim() === "");
+}
+
+async function getRows(params: Record<string, string> = {}): Promise<Row[]> {
+  const qs = new URLSearchParams({ ...params, t: String(Date.now()) });
+  const res = await fetch(`${SHEET_URL}?${qs}`);
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
   const text = await res.text();
   let parsed: unknown;
@@ -28,16 +40,77 @@ export async function fetchRows(): Promise<Row[]> {
   } catch {
     throw new Error("The data source did not return JSON.");
   }
-  const rows = toRows(parsed);
-  // Drop a header row if present
+  return toRows(parsed).filter((r) => !isBlank(r));
+}
+
+/** Login tab: [EngineerID, EngineerName, Username, Password] */
+export async function fetchLoginRows(): Promise<Row[]> {
+  const rows = await getRows();
   if (rows.length && String(rows[0]?.[0] ?? "").toLowerCase().includes("engineer")) {
     return rows.slice(1);
   }
   return rows;
 }
 
-export async function updateStatus(row: string, status: string) {
-  const body = new URLSearchParams({ row, status });
+export type DispatchJob = {
+  rowId: string;
+  engineer: string;
+  account: string;
+  model: string;
+  purpose: string;
+  remarks: string;
+  status: string;
+};
+
+const HEADER_HINTS: Record<keyof Omit<DispatchJob, "rowId">, string[]> = {
+  engineer: ["engineer", "technician", "assigned"],
+  account: ["account", "customer", "client"],
+  model: ["model", "machine"],
+  purpose: ["purpose", "service", "job type"],
+  remarks: ["remark", "contact", "address"],
+  status: ["status"],
+};
+
+function looksLikeHeader(row: Row) {
+  const joined = row.map((c) => String(c ?? "").toLowerCase()).join(" ");
+  return joined.includes("account") || joined.includes("machine") || joined.includes("purpose");
+}
+
+function mapByHeader(header: Row) {
+  const cells = header.map((c) => String(c ?? "").toLowerCase());
+  const idx = {} as Record<keyof typeof HEADER_HINTS, number>;
+  (Object.keys(HEADER_HINTS) as (keyof typeof HEADER_HINTS)[]).forEach((key) => {
+    idx[key] = cells.findIndex((c) => HEADER_HINTS[key].some((h) => c.includes(h)));
+  });
+  return idx;
+}
+
+/** Daily Dispatch tab */
+export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
+  const rows = await getRows({ sheet: "Daily Dispatch" });
+  if (!rows.length) return [];
+
+  const hasHeader = looksLikeHeader(rows[0]);
+  const idx = hasHeader
+    ? mapByHeader(rows[0])
+    : { engineer: 0, account: 1, model: 2, purpose: 3, remarks: 4, status: 5 };
+  const body = hasHeader ? rows.slice(1) : rows;
+
+  const pick = (row: Row, i: number) => (i >= 0 ? String(row[i] ?? "").trim() : "");
+
+  return body.map((row, i) => ({
+    rowId: String(hasHeader ? i + 2 : i + 1),
+    engineer: pick(row, idx.engineer),
+    account: pick(row, idx.account),
+    model: pick(row, idx.model),
+    purpose: pick(row, idx.purpose),
+    remarks: pick(row, idx.remarks),
+    status: pick(row, idx.status),
+  }));
+}
+
+export async function updateJobStatus(rowId: string, status: StatusOption) {
+  const body = new URLSearchParams({ row: rowId, status, sheet: "Daily Dispatch" });
   await fetch(SHEET_URL, {
     method: "POST",
     mode: "no-cors",
