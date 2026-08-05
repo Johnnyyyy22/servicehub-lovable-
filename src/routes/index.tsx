@@ -47,8 +47,8 @@ function LoginPage() {
         setError("Invalid login");
         return;
       }
-      localStorage.setItem("engineerId", String(match[0]));
-      localStorage.setItem("engineerName", String(match[1] ?? ""));
+      localStorage.setItem("EngineerID", String(match[0]));
+      localStorage.setItem("EngineerName", String(match[1] ?? ""));
       navigate({ to: "/dispatch" });
     } catch {
       setError("Invalid login");

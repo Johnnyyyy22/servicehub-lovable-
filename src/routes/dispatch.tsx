@@ -46,8 +46,8 @@ function DispatchPage() {
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
-    const id = localStorage.getItem("engineerId");
-    const name = localStorage.getItem("engineerName") ?? "";
+    const id = localStorage.getItem("EngineerID");
+    const name = localStorage.getItem("EngineerName") ?? "";
     if (!id) {
       navigate({ to: "/" });
       return;
@@ -92,8 +92,8 @@ function DispatchPage() {
   }
 
   function signOut() {
-    localStorage.removeItem("engineerId");
-    localStorage.removeItem("engineerName");
+    localStorage.removeItem("EngineerID");
+    localStorage.removeItem("EngineerName");
     navigate({ to: "/" });
   }
 
