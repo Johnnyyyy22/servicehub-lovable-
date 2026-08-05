@@ -169,7 +169,7 @@ function DispatchPage() {
                     </td>
                     <td className="px-4 py-3">
                       <Select
-                        value={STATUS_OPTIONS.includes(job.status as StatusOption) ? job.status : undefined}
+                        value={STATUS_OPTIONS.includes(job.status as StatusOption) ? job.status : ""}
                         disabled={saving === job.rowId}
                         onValueChange={(v) => handleStatus(job, v as StatusOption)}
                       >

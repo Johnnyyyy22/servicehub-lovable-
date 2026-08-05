@@ -90,9 +90,10 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
   const rows = await getRows({ sheet: "Daily Dispatch" });
   if (!rows.length) return [];
 
-  const hasHeader = looksLikeHeader(rows[0]);
+  const first = rows[0] as Row;
+  const hasHeader = looksLikeHeader(first);
   const idx = hasHeader
-    ? mapByHeader(rows[0])
+    ? mapByHeader(first)
     : { engineer: 0, account: 1, model: 2, purpose: 3, remarks: 4, status: 5 };
   const body = hasHeader ? rows.slice(1) : rows;
 
