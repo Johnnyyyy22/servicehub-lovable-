@@ -43,9 +43,10 @@ async function getRows(params: Record<string, string> = {}): Promise<Row[]> {
   return toRows(parsed).filter((r) => !isBlank(r));
 }
 
-/** Login tab: [EngineerID, EngineerName, Username, Password] */
+/** Users tab: [EngineerID, EngineerName, Username, Password] */
 export async function fetchLoginRows(): Promise<Row[]> {
-  const rows = await getRows();
+  let rows = await getRows({ sheet: "Users tab" });
+  if (!rows.length) rows = await getRows();
   if (rows.length && String(rows[0]?.[0] ?? "").toLowerCase().includes("engineer")) {
     return rows.slice(1);
   }
