@@ -116,7 +116,7 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
 }
 
 export async function updateJobStatus(rowId: string, status: StatusOption) {
-  const body = new URLSearchParams({ row: rowId, status });
+  const body = new URLSearchParams({ row: rowId, status, sheet: "Daily Dispatch" });
   await fetch(SHEET_URL, {
     method: "POST",
     mode: "no-cors",

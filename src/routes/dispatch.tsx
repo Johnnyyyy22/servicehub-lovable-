@@ -88,7 +88,6 @@ function DispatchPage() {
     setError("");
     try {
       await updateJobStatus(job.rowId, status);
-      setJobs((prev) => prev.filter((j) => j.rowId !== job.rowId));
       await load(engineer.id, engineer.name);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update failed.");
