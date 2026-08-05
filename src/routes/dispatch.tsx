@@ -55,15 +55,19 @@ function DispatchPage() {
     setEngineer({ id, name });
   }, [navigate]);
 
-  const load = useCallback(async (name: string) => {
+  const load = useCallback(async (id: string, name: string) => {
     setLoading(true);
     setError("");
     try {
       const all = await fetchDispatchJobs();
-      const key = name.trim().toLowerCase();
+      const idKey = id.trim().toLowerCase();
+      const nameKey = name.trim().toLowerCase();
       setJobs(
         all.filter(
-          (j) => j.engineer.toLowerCase() === key && (j.account || j.model || j.purpose),
+          (j) =>
+            (j.engineerId.trim().toLowerCase() === idKey ||
+              j.engineer.trim().toLowerCase() === nameKey) &&
+            (j.account || j.model || j.purpose),
         ),
       );
     } catch (e) {
@@ -75,7 +79,7 @@ function DispatchPage() {
   }, []);
 
   useEffect(() => {
-    if (engineer) void load(engineer.name);
+    if (engineer) void load(engineer.id, engineer.name);
   }, [engineer, load]);
 
   async function handleStatus(job: DispatchJob, status: StatusOption) {
@@ -84,7 +88,7 @@ function DispatchPage() {
     setError("");
     try {
       await updateJobStatus(job.rowId, status);
-      await load(engineer.name);
+      await load(engineer.id, engineer.name);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update failed.");
     } finally {
@@ -113,7 +117,7 @@ function DispatchPage() {
           <div className="flex gap-2">
             <Button
               variant="outline"
-              onClick={() => engineer && load(engineer.name)}
+              onClick={() => engineer && load(engineer.id, engineer.name)}
               disabled={loading}
             >
               Refresh
