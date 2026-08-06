@@ -124,3 +124,17 @@ export async function updateJobStatus(rowId: string, status: StatusOption) {
     body,
   });
 }
+
+export async function logJobTime(rowId: string, action: "login" | "logout") {
+  const body = new URLSearchParams({
+    row: rowId,
+    action,
+    time: new Date().toLocaleString(),
+  });
+  await fetch(SHEET_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+}
