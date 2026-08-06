@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   fetchDispatchJobs,
   updateJobStatus,
+  logJobTime,
   STATUS_OPTIONS,
   type DispatchJob,
   type StatusOption,
@@ -44,6 +45,13 @@ function DispatchPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setNow(new Date());
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     const id = localStorage.getItem("EngineerID");
@@ -96,6 +104,20 @@ function DispatchPage() {
     }
   }
 
+  async function handleLog(job: DispatchJob, action: "login" | "logout") {
+    if (!engineer) return;
+    setSaving(job.rowId);
+    setError("");
+    try {
+      await logJobTime(job.rowId, action);
+      await load(engineer.id, engineer.name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Update failed.");
+    } finally {
+      setSaving(null);
+    }
+  }
+
   function signOut() {
     localStorage.removeItem("EngineerID");
     localStorage.removeItem("EngineerName");
@@ -107,9 +129,27 @@ function DispatchPage() {
       <div className="mx-auto w-full max-w-6xl">
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-6">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-              Daily dispatch
-            </h1>
+            <div className="flex flex-wrap items-baseline gap-3">
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+                Daily dispatch
+              </h1>
+              <span className="text-sm font-medium text-muted-foreground">
+                {now
+                  ? `Today is, ${now.toLocaleDateString("en-US", {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}, ${now
+                      .toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                        second: "2-digit",
+                        hour12: true,
+                      })
+                      .toLowerCase()}`
+                  : ""}
+              </span>
+            </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {engineer ? `${engineer.name || "Engineer"} · ID ${engineer.id}` : "Loading…"}
             </p>
@@ -145,19 +185,21 @@ function DispatchPage() {
                   Remarks / Contact person / Contact no / Address
                 </th>
                 <th className="px-4 py-3 font-medium">Status after service</th>
+                <th className="px-4 py-3 font-medium">Log in</th>
+                <th className="px-4 py-3 font-medium">Log out</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                     Loading jobs…
                   </td>
                 </tr>
               )}
               {!loading && jobs.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                     No jobs assigned.
                   </td>
                 </tr>
@@ -190,6 +232,26 @@ function DispatchPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={saving === job.rowId}
+                        onClick={() => handleLog(job, "login")}
+                      >
+                        Log in
+                      </Button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={saving === job.rowId}
+                        onClick={() => handleLog(job, "logout")}
+                      >
+                        Log out
+                      </Button>
                     </td>
                   </tr>
                 ))}
