@@ -46,6 +46,9 @@ function DispatchPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const [now, setNow] = useState<Date | null>(null);
+  const [loginTimes, setLoginTimes] = useState<Record<string, string>>({});
+  const [logoutTimes, setLogoutTimes] = useState<Record<string, string>>({});
+  const [picked, setPicked] = useState<Record<string, StatusOption>>({});
 
   useEffect(() => {
     setNow(new Date());
@@ -96,7 +99,7 @@ function DispatchPage() {
     setError("");
     try {
       await updateJobStatus(job.rowId, status);
-      await load(engineer.id, engineer.name);
+      setPicked((p) => ({ ...p, [job.rowId]: status }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update failed.");
     } finally {
@@ -106,11 +109,22 @@ function DispatchPage() {
 
   async function handleLog(job: DispatchJob, action: "login" | "logout") {
     if (!engineer) return;
+    const status = picked[job.rowId];
+    if (action === "logout" && !status) {
+      setError("Select a status before logging out.");
+      return;
+    }
     setSaving(job.rowId);
     setError("");
     try {
-      await logJobTime(job.rowId, action);
-      await load(engineer.id, engineer.name);
+      const stamp = new Date().toLocaleString();
+      await logJobTime(job.rowId, action, action === "logout" ? status : undefined);
+      if (action === "login") {
+        setLoginTimes((t) => ({ ...t, [job.rowId]: stamp }));
+      } else {
+        setLogoutTimes((t) => ({ ...t, [job.rowId]: stamp }));
+        await load(engineer.id, engineer.name);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update failed.");
     } finally {
@@ -205,7 +219,10 @@ function DispatchPage() {
                 </tr>
               )}
               {!loading &&
-                jobs.map((job) => (
+                jobs.map((job) => {
+                  const loggedIn = Boolean(loginTimes[job.rowId]);
+                  const loggedOut = Boolean(logoutTimes[job.rowId]);
+                  return (
                   <tr key={job.rowId} className="align-top">
                     <td className="px-4 py-3 font-medium text-foreground">{job.account}</td>
                     <td className="px-4 py-3 text-muted-foreground">{job.model}</td>
@@ -215,13 +232,22 @@ function DispatchPage() {
                     </td>
                     <td className="px-4 py-3">
                       <Select
-                        value={STATUS_OPTIONS.includes(job.status as StatusOption) ? job.status : ""}
-                        disabled={saving === job.rowId}
+                        value={
+                          picked[job.rowId] ??
+                          (STATUS_OPTIONS.includes(job.status as StatusOption) ? job.status : "")
+                        }
+                        disabled={!loggedIn || loggedOut || saving === job.rowId}
                         onValueChange={(v) => handleStatus(job, v as StatusOption)}
                       >
                         <SelectTrigger className="w-64" aria-label={`Status for ${job.account}`}>
                           <SelectValue
-                            placeholder={saving === job.rowId ? "Saving…" : "Select status"}
+                            placeholder={
+                              !loggedIn
+                                ? "Log in first"
+                                : saving === job.rowId
+                                  ? "Saving…"
+                                  : "Select status"
+                            }
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -234,27 +260,40 @@ function DispatchPage() {
                       </Select>
                     </td>
                     <td className="px-4 py-3">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={saving === job.rowId}
-                        onClick={() => handleLog(job, "login")}
-                      >
-                        Log in
-                      </Button>
+                      {loggedIn ? (
+                        <span className="text-xs text-muted-foreground">
+                          {loginTimes[job.rowId]}
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={saving === job.rowId}
+                          onClick={() => handleLog(job, "login")}
+                        >
+                          Log in
+                        </Button>
+                      )}
                     </td>
                     <td className="px-4 py-3">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={saving === job.rowId}
-                        onClick={() => handleLog(job, "logout")}
-                      >
-                        Log out
-                      </Button>
+                      {loggedOut ? (
+                        <span className="text-xs text-muted-foreground">
+                          {logoutTimes[job.rowId]}
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!loggedIn || !picked[job.rowId] || saving === job.rowId}
+                          onClick={() => handleLog(job, "logout")}
+                        >
+                          Log out
+                        </Button>
+                      )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
             </tbody>
           </table>
         </div>

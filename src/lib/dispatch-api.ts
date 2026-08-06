@@ -116,7 +116,7 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
 }
 
 export async function updateJobStatus(rowId: string, status: StatusOption) {
-  const body = new URLSearchParams({ row: rowId, status });
+  const body = new URLSearchParams({ row: rowId, action: "status", status });
   await fetch(SHEET_URL, {
     method: "POST",
     mode: "no-cors",
@@ -125,12 +125,17 @@ export async function updateJobStatus(rowId: string, status: StatusOption) {
   });
 }
 
-export async function logJobTime(rowId: string, action: "login" | "logout") {
+export async function logJobTime(
+  rowId: string,
+  action: "login" | "logout",
+  status?: string,
+) {
   const body = new URLSearchParams({
     row: rowId,
     action,
     time: new Date().toLocaleString(),
   });
+  if (status) body.set("status", status);
   await fetch(SHEET_URL, {
     method: "POST",
     mode: "no-cors",
