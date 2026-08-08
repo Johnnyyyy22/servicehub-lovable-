@@ -219,19 +219,20 @@ function DispatchPage() {
                 <th className="px-4 py-3 font-medium">Status after service</th>
                 <th className="px-4 py-3 font-medium">Log in</th>
                 <th className="px-4 py-3 font-medium">Log out</th>
+                <th className="px-4 py-3 font-medium">Time spent</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     Loading jobs…
                   </td>
                 </tr>
               )}
               {!loading && jobs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     No jobs assigned.
                   </td>
                 </tr>
@@ -286,7 +287,7 @@ function DispatchPage() {
                         <Button
                           size="sm"
                           variant="secondary"
-                          disabled={saving === job.rowId}
+                          disabled={saving === job.rowId || (activeJob !== null && activeJob !== job.rowId)}
                           onClick={() => handleLog(job, "login")}
                         >
                           Log in
@@ -308,6 +309,9 @@ function DispatchPage() {
                           Log out
                         </Button>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {spent[job.rowId] ?? "—"}
                     </td>
                   </tr>
                   );
