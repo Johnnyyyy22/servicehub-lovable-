@@ -48,7 +48,10 @@ function DispatchPage() {
   const [now, setNow] = useState<Date | null>(null);
   const [loginTimes, setLoginTimes] = useState<Record<string, string>>({});
   const [logoutTimes, setLogoutTimes] = useState<Record<string, string>>({});
+  const [startedAt, setStartedAt] = useState<Record<string, number>>({});
   const [picked, setPicked] = useState<Record<string, StatusOption>>({});
+  const [spent, setSpent] = useState<Record<string, string>>({});
+  const activeJob = Object.keys(loginTimes).find((r) => !logoutTimes[r]) ?? null;
 
   useEffect(() => {
     setNow(new Date());
@@ -117,12 +120,27 @@ function DispatchPage() {
     setSaving(job.rowId);
     setError("");
     try {
-      const stamp = new Date().toLocaleString();
+      const at = new Date();
+      const stamp = at.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
       await logJobTime(job.rowId, action, action === "logout" ? status : undefined);
       if (action === "login") {
         setLoginTimes((t) => ({ ...t, [job.rowId]: stamp }));
+        setStartedAt((t) => ({ ...t, [job.rowId]: at.getTime() }));
       } else {
         setLogoutTimes((t) => ({ ...t, [job.rowId]: stamp }));
+        const start = startedAt[job.rowId];
+        if (start) {
+          const mins = Math.max(0, Math.round((at.getTime() - start) / 60000));
+          setSpent((s) => ({
+            ...s,
+            [job.rowId]: `${Math.floor(mins / 60)} hr ${mins % 60} mins`,
+          }));
+        }
         await load(engineer.id, engineer.name);
       }
     } catch (e) {
