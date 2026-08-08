@@ -48,9 +48,8 @@ function DispatchPage() {
   const [now, setNow] = useState<Date | null>(null);
   const [loginTimes, setLoginTimes] = useState<Record<string, string>>({});
   const [logoutTimes, setLogoutTimes] = useState<Record<string, string>>({});
-  const [startedAt, setStartedAt] = useState<Record<string, number>>({});
+  const [, setStartedAt] = useState<Record<string, number>>({});
   const [picked, setPicked] = useState<Record<string, StatusOption>>({});
-  const [spent, setSpent] = useState<Record<string, string>>({});
   const activeJob = Object.keys(loginTimes).find((r) => !logoutTimes[r]) ?? null;
 
   useEffect(() => {
@@ -133,14 +132,6 @@ function DispatchPage() {
         setStartedAt((t) => ({ ...t, [job.rowId]: at.getTime() }));
       } else {
         setLogoutTimes((t) => ({ ...t, [job.rowId]: stamp }));
-        const start = startedAt[job.rowId];
-        if (start) {
-          const mins = Math.max(0, Math.round((at.getTime() - start) / 60000));
-          setSpent((s) => ({
-            ...s,
-            [job.rowId]: `${Math.floor(mins / 60)} hr ${mins % 60} mins`,
-          }));
-        }
         await load(engineer.id, engineer.name);
       }
     } catch (e) {
@@ -219,20 +210,19 @@ function DispatchPage() {
                 <th className="px-4 py-3 font-medium">Status after service</th>
                 <th className="px-4 py-3 font-medium">Log in</th>
                 <th className="px-4 py-3 font-medium">Log out</th>
-                <th className="px-4 py-3 font-medium">Time spent</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                     Loading jobs…
                   </td>
                 </tr>
               )}
               {!loading && jobs.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                     No jobs assigned.
                   </td>
                 </tr>
@@ -309,9 +299,6 @@ function DispatchPage() {
                           Log out
                         </Button>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {spent[job.rowId] ?? "—"}
                     </td>
                   </tr>
                   );
