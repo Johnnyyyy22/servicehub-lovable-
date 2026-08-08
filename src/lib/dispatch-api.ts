@@ -97,7 +97,7 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
   const hasHeader = looksLikeHeader(first);
   const idx = hasHeader
     ? mapByHeader(first)
-    : { engineerId: 1, engineer: 0, account: 2, model: 3, purpose: 4, remarks: 5, status: 6 };
+    : { engineerId: 1, engineer: 0, account: 4, model: 5, purpose: 6, remarks: 7, status: 8 };
   if (hasHeader && idx.engineerId < 0) idx.engineerId = 1;
   const body = hasHeader ? rows.slice(1) : rows;
 
