@@ -130,11 +130,19 @@ export async function logJobTime(
   action: "login" | "logout",
   status?: string,
 ) {
+  const now = new Date();
+  const time = now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
   const body = new URLSearchParams({
     row: rowId,
     action,
-    time: new Date().toLocaleString(),
+    time,
   });
+  if (action === "logout") body.set("date", now.toLocaleDateString("en-US"));
   if (status) body.set("status", status);
   await fetch(SHEET_URL, {
     method: "POST",
