@@ -9,16 +9,16 @@ import logoAsset from "@/assets/service-hub-logo.png.asset.json";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Engineer Login — Dispatch Portal" },
+      { title: "ServiceHub" },
       {
         name: "description",
         content:
-          "Sign in with your engineer credentials to view and update your assigned dispatch jobs.",
+          "Powered by: Johnnyyyy.",
       },
-      { property: "og:title", content: "Engineer Login — Dispatch Portal" },
+      { property: "og:title", content: "ServiceHub" },
       {
         property: "og:description",
-        content: "Sign in to view and update your assigned dispatch jobs.",
+        content: "Powered by: Johnnyyyy.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
