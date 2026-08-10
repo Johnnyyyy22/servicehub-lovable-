@@ -53,6 +53,13 @@ function LoginPage() {
       }
       localStorage.setItem("EngineerID", String(match[0]));
       localStorage.setItem("EngineerName", String(match[1] ?? ""));
+      // Column E of the Users tab holds the engineer's email; fall back to any
+      // cell in the row that looks like an address so notifications still work.
+      const emailCell =
+        match.slice(4).find((c) => String(c ?? "").includes("@")) ??
+        match.find((c) => String(c ?? "").includes("@")) ??
+        "";
+      localStorage.setItem("engineerEmail", String(emailCell).trim());
       navigate({ to: "/dispatch" });
     } catch {
       setError("Invalid login");
