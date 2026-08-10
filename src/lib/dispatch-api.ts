@@ -1,6 +1,9 @@
 export const SHEET_URL =
   "https://script.google.com/macros/s/AKfycbyW4tvXHQYZ3MqlQXmqxm2WMjY1ohf2eoiY2-ZwPDYhBCx9wD15RUuW7uCmf8ALQnGE/exec";
 
+/** Apps Script Web App endpoint (alias kept short for call sites). */
+export const API = SHEET_URL;
+
 export type Row = unknown[];
 
 export const STATUS_OPTIONS = [
@@ -9,6 +12,33 @@ export const STATUS_OPTIONS = [
   "Not Running / Running with Parts for Replacement",
 ] as const;
 export type StatusOption = (typeof STATUS_OPTIONS)[number];
+
+/** Status values the Apps Script should email the dispatcher about. */
+export const NOTIFY_STATUSES = [
+  "Running Good",
+  "Not Running / Running with Parts for Replacement",
+  "Unresponded",
+  "Backlog",
+] as const;
+
+export function shouldNotifyStatus(status: string): boolean {
+  const value = status.trim().toLowerCase();
+  return NOTIFY_STATUSES.some((s) => s.toLowerCase() === value);
+}
+
+export type Engineer = { id: string; name: string; email: string };
+
+/** Reads the signed-in engineer from localStorage, or null. */
+export function getEngineer(): Engineer | null {
+  if (typeof localStorage === "undefined") return null;
+  const id = localStorage.getItem("EngineerID") ?? localStorage.getItem("engineerID") ?? "";
+  if (!id.trim()) return null;
+  return {
+    id,
+    name: localStorage.getItem("EngineerName") ?? localStorage.getItem("engineerName") ?? "",
+    email: localStorage.getItem("engineerEmail") ?? localStorage.getItem("EngineerEmail") ?? "",
+  };
+}
 
 function toRows(data: unknown): Row[] {
   if (!Array.isArray(data)) {
