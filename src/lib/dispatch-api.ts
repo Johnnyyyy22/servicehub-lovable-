@@ -92,6 +92,8 @@ export type DispatchJob = {
   purpose: string;
   remarks: string;
   status: string;
+  logIn: string;
+  logOut: string;
 };
 
 const HEADER_HINTS: Record<keyof Omit<DispatchJob, "rowId">, string[]> = {
@@ -102,6 +104,8 @@ const HEADER_HINTS: Record<keyof Omit<DispatchJob, "rowId">, string[]> = {
   purpose: ["purpose", "service", "job type"],
   remarks: ["remark", "contact", "address"],
   status: ["status"],
+  logIn: ["log in", "login", "time in"],
+  logOut: ["log out", "logout", "time out"],
 };
 
 function looksLikeHeader(row: Row) {
@@ -127,7 +131,17 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
   const hasHeader = looksLikeHeader(first);
   const idx = hasHeader
     ? mapByHeader(first)
-    : { engineerId: 1, engineer: 0, account: 4, model: 5, purpose: 6, remarks: 7, status: 8 };
+    : {
+        engineerId: 1,
+        engineer: 0,
+        account: 4,
+        model: 5,
+        purpose: 6,
+        remarks: 7,
+        status: 8,
+        logIn: -1,
+        logOut: -1,
+      };
   if (hasHeader && idx.engineerId < 0) idx.engineerId = 1;
   const body = hasHeader ? rows.slice(1) : rows;
 
@@ -142,16 +156,91 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
     purpose: pick(row, idx.purpose),
     remarks: pick(row, idx.remarks),
     status: pick(row, idx.status),
+    logIn: pick(row, idx.logIn),
+    logOut: pick(row, idx.logOut),
   }));
 }
 
+export type PostResult = {
+  /** The request reached the script and it did not report a conflict. */
+  ok: boolean;
+  /** Raw result string echoed by the script ("ok", "ALREADY_LOGGED_IN", …). */
+  result: string;
+  /** Whether the script echoed notify:"ok" for the Gmail notification. */
+  notified: boolean;
+  /** False when the response was opaque (no-cors fallback) and can't be read. */
+  acked: boolean;
+};
+
+export const CONFLICT = "ALREADY_LOGGED_IN";
+
+/**
+ * Single POST helper for every script call. Always attaches the engineer's
+ * identity and an explicit `notify` flag. Falls back to an opaque no-cors
+ * request when CORS blocks reading the response.
+ */
+export async function postToScript(
+  params: Record<string, string | number | undefined>,
+): Promise<PostResult> {
+  const engineer = getEngineer();
+  const identity: Engineer = engineer ?? { id: "", name: "", email: "" };
+
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") body.set(key, String(value));
+  }
+  // Identity travels both as a JSON blob and as flat fields so the script can
+  // read whichever shape it prefers.
+  body.set("engineer", JSON.stringify(identity));
+  body.set("engineerId", identity.id);
+  body.set("engineerName", identity.name);
+  body.set("engineerEmail", identity.email);
+
+  try {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    const text = await res.text();
+    let result = text.trim();
+    let notified = false;
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      result = String(parsed["result"] ?? parsed["status"] ?? result);
+      notified = String(parsed["notify"] ?? "").toLowerCase() === "ok";
+    } catch {
+      notified = /notify\s*[:=]\s*"?ok/i.test(text);
+    }
+    const conflict = result.toUpperCase().includes(CONFLICT);
+    return { ok: res.ok && !conflict, result: conflict ? CONFLICT : result, notified, acked: true };
+  } catch {
+    // Opaque fallback: the write still lands, we just cannot read the echo.
+    await fetch(API, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    return { ok: true, result: "sent", notified: false, acked: false };
+  }
+}
+
+export function stampTime(at: Date = new Date()) {
+  return at.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+}
+
 export async function updateJobStatus(rowId: string, status: StatusOption) {
-  const body = new URLSearchParams({ row: rowId, action: "status", status });
-  await fetch(SHEET_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
+  return postToScript({
+    row: rowId,
+    action: "status",
+    status,
+    notify: shouldNotifyStatus(status) ? 1 : 0,
   });
 }
 
@@ -159,25 +248,16 @@ export async function logJobTime(
   rowId: string,
   action: "login" | "logout",
   status?: string,
+  force?: boolean,
 ) {
   const now = new Date();
-  const time = now.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-  const body = new URLSearchParams({
+  return postToScript({
     row: rowId,
     action,
-    time,
-  });
-  if (action === "logout") body.set("date", now.toLocaleDateString("en-US"));
-  if (status) body.set("status", status);
-  await fetch(SHEET_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
+    time: stampTime(now),
+    ...(action === "logout" ? { date: now.toLocaleDateString("en-US") } : {}),
+    ...(status ? { status } : {}),
+    ...(force ? { force: 1 } : {}),
+    notify: 1,
   });
 }
