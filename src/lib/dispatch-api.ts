@@ -96,68 +96,59 @@ export type DispatchJob = {
   logOut: string;
 };
 
-const HEADER_HINTS: Record<keyof Omit<DispatchJob, "rowId">, string[]> = {
-  engineerId: ["engineer id", "engineerid", "eng id", "id"],
-  engineer: ["engineer", "technician", "assigned"],
-  account: ["account", "customer", "client"],
-  model: ["model", "machine"],
-  purpose: ["purpose", "service", "job type"],
-  remarks: ["remark", "contact", "address"],
-  status: ["status"],
-  logIn: ["log in", "login", "time in"],
-  logOut: ["log out", "logout", "time out"],
-};
-
-function looksLikeHeader(row: Row) {
-  const joined = row.map((c) => String(c ?? "").toLowerCase()).join(" ");
-  return joined.includes("account") || joined.includes("machine") || joined.includes("purpose");
-}
-
-function mapByHeader(header: Row) {
-  const cells = header.map((c) => String(c ?? "").toLowerCase());
-  const idx = {} as Record<keyof typeof HEADER_HINTS, number>;
-  (Object.keys(HEADER_HINTS) as (keyof typeof HEADER_HINTS)[]).forEach((key) => {
-    idx[key] = cells.findIndex((c) => HEADER_HINTS[key].some((h) => c.includes(h)));
-  });
-  return idx;
-}
+/**
+ * Fixed column layout returned by the Apps Script's doGet(), which always
+ * starts reading at sheet row 2 (columns A–L): Date, Engineer ID, EE Name,
+ * Area, Account, Machine Model, Purpose, Remarks, STATUS, LOG IN, LOG OUT,
+ * TIME SPENT. The header row (row 1) is never included in the response,
+ * so column order is guaranteed and jobs are always read by fixed
+ * position here.
+ *
+ * A previous version tried to detect a header row by scanning the first
+ * row's text for words like "account" or "machine" — but a normal Purpose
+ * value such as "Check Machine" contains the word "machine" too, so it
+ * kept misidentifying the very first real data row as a header. That row
+ * was silently dropped, and every other job had Account/Purpose/Remarks
+ * mapped to nothing (blank) while Machine Model picked up the Purpose
+ * text instead. Reading by fixed position removes that failure mode
+ * entirely.
+ */
+const COL = {
+  date: 0,
+  engineerId: 1,
+  engineer: 2,
+  area: 3,
+  account: 4,
+  model: 5,
+  purpose: 6,
+  remarks: 7,
+  status: 8,
+  logIn: 9,
+  logOut: 10,
+  timeSpent: 11,
+} as const;
 
 /** Daily Dispatch tab */
 export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
   const rows = await getRows({ sheet: "Daily Dispatch" });
   if (!rows.length) return [];
 
-  const first = rows[0] as Row;
-  const hasHeader = looksLikeHeader(first);
-  const idx = hasHeader
-    ? mapByHeader(first)
-    : {
-        engineerId: 1,
-        engineer: 0,
-        account: 4,
-        model: 5,
-        purpose: 6,
-        remarks: 7,
-        status: 8,
-        logIn: -1,
-        logOut: -1,
-      };
-  if (hasHeader && idx.engineerId < 0) idx.engineerId = 1;
-  const body = hasHeader ? rows.slice(1) : rows;
-
   const pick = (row: Row, i: number) => (i >= 0 ? String(row[i] ?? "").trim() : "");
 
-  return body.map((row, i) => ({
-    rowId: String(hasHeader ? i + 2 : i + 1),
-    engineerId: pick(row, idx.engineerId),
-    engineer: pick(row, idx.engineer),
-    account: pick(row, idx.account),
-    model: pick(row, idx.model),
-    purpose: pick(row, idx.purpose),
-    remarks: pick(row, idx.remarks),
-    status: pick(row, idx.status),
-    logIn: pick(row, idx.logIn),
-    logOut: pick(row, idx.logOut),
+  // rows[i] is always sheet row (i + 2) since row 1 is never returned, so
+  // the row id posted back must be (i + 1) to match the script's
+  // `r = Number(p.row) + 1`.
+  return rows.map((row, i) => ({
+    rowId: String(i + 1),
+    engineerId: pick(row, COL.engineerId),
+    engineer: pick(row, COL.engineer),
+    account: pick(row, COL.account),
+    model: pick(row, COL.model),
+    purpose: pick(row, COL.purpose),
+    remarks: pick(row, COL.remarks),
+    status: pick(row, COL.status),
+    logIn: pick(row, COL.logIn),
+    logOut: pick(row, COL.logOut),
   }));
 }
 
