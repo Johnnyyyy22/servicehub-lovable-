@@ -4,7 +4,7 @@ import { fetchLoginRows } from "@/lib/dispatch-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import logoAsset from "@/assets/service-hub-logo.png.asset.json";
+<img src="/logo.png" alt="Service Hub logo" className="mx-auto h-12 w-auto" />
 
 export const Route = createFileRoute("/")({
   head: () => ({
