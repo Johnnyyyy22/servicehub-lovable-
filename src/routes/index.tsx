@@ -4,7 +4,6 @@ import { fetchLoginRows } from "@/lib/dispatch-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-<img src="/logo.png" alt="Service Hub logo" className="mx-auto h-12 w-auto" />
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -73,7 +72,7 @@ function LoginPage() {
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-sm">
         <h1 className="sr-only">Service Hub</h1>
         <img
-          src={logoAsset.url}
+          src="/logo.png"
           alt="Service Hub logo"
           className="mx-auto h-12 w-auto"
         />
