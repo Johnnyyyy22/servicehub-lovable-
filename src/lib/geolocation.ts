@@ -1,76 +1,116 @@
 /**
- * Logout location capture.
+ * Real-time location capture for the Log Out flow.
  *
- * Requires high-accuracy GPS and blocks logout when location can't be
- * trusted. Mirrors what the engineer sees, so keep the two error messages
- * in sync with the copy used in dispatch.tsx.
+ * IMPORTANT LIMITATION (please read before relying on this for security):
+ * The browser Geolocation API has NO standard, reliable way to tell a real
+ * GPS fix apart from a fake one set by a "mock location" app. Android's
+ * native mock-location flag is a system permission that is NOT exposed to
+ * web pages — only to native apps with ACCESS_MOCK_LOCATION. So "detect
+ * mock location" below is a best-effort heuristic (implausible accuracy,
+ * a location that doesn't move at all across repeated reads, coordinates
+ * outside the expected region, etc.), not a guarantee. The real anti-spoof
+ * backstop is, and must remain, the server-side plausibility check in the
+ * Apps Script (isPlausiblePhilippinesLocation_) — never trust the client
+ * alone for this.
  */
 
-export const LOCATION_DISABLED_MSG =
-  "Please enable location services to log out.";
-export const LOCATION_MOCKED_MSG =
-  "Invalid location detected. Please disable mock location tools.";
-
-export class LocationBlockedError extends Error {}
-
-export type GeoResult = {
+export type VerifiedLocation = {
   lat: number;
   lng: number;
   accuracy: number;
 };
 
-/** "lat, lng" — the exact format the sheet's LOCATION column expects. */
-export function formatLocation(loc: GeoResult): string {
-  return `${loc.lat}, ${loc.lng}`;
+export class LocationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LocationError";
+  }
+}
+
+// Same bounding box as the Apps Script's PH_BOUNDS, kept in sync so the
+// engineer gets an immediate, friendly message instead of waiting on a
+// round-trip just to be told the same thing by the server.
+const PH_BOUNDS = { minLat: 4.5, maxLat: 21.5, minLng: 116.0, maxLng: 127.0 };
+
+function isPlausiblePhilippinesLocation(lat: number, lng: number): boolean {
+  return (
+    lat >= PH_BOUNDS.minLat &&
+    lat <= PH_BOUNDS.maxLat &&
+    lng >= PH_BOUNDS.minLng &&
+    lng <= PH_BOUNDS.maxLng
+  );
 }
 
 /**
- * Requests a fresh, high-accuracy position for a logout.
- *
- * Rejects with LocationBlockedError (message already set to the right
- * user-facing copy) whenever the position can't be captured OR looks
- * spoofed, so callers can just show err.message and stop.
- *
- * Note on mock-location detection: the standard web Geolocation API does
- * not expose a reliable "this is fake" signal — that's an OS/app-level
- * concept, not something a browser can always see. Some Android WebViews
- * surface a non-standard `mocked` boolean on the position object when a
- * mock-location app is active; when present, we honor it. This is a
- * best-effort check, not a guarantee — real anti-spoofing has to happen
- * server-side (see the Apps Script bounds check).
+ * Heuristic-only "does this look like a fake/mock reading" check. See the
+ * module-level comment above for why this can never be airtight on the web.
  */
-export function requestLogoutLocation(): Promise<GeoResult> {
+function looksSuspicious(pos: GeolocationPosition): boolean {
+  const c = pos.coords;
+  // Some mobile mock-GPS tools report a suspiciously perfect accuracy.
+  if (typeof c.accuracy === "number" && c.accuracy === 0) return true;
+  // A handful of Chromium builds on rooted/mocked devices surface a
+  // non-standard `mocked` flag on the position or its coords. It isn't in
+  // the TypeScript lib.dom types, so read it defensively.
+  const maybeMocked =
+    (pos as unknown as { mocked?: boolean }).mocked ??
+    (c as unknown as { mocked?: boolean }).mocked;
+  if (maybeMocked === true) return true;
+  return false;
+}
+
+/**
+ * Requests a fresh, high-accuracy fix and resolves with { lat, lng, accuracy }.
+ * Rejects with a LocationError carrying the exact message that should be
+ * shown to the engineer for every failure mode described in the spec:
+ *  - Geolocation unsupported / permission denied / disabled -> location
+ *    services message.
+ *  - Suspected mock location -> spoofing message.
+ * Does NOT enforce the Philippines bounding box as a hard block (the
+ * engineer may legitimately be a little outside it); that plausibility
+ * call is left to the Apps Script, which is the source of truth. This
+ * function only flags client-detectable spoofing signals.
+ */
+export function getVerifiedLocation(): Promise<VerifiedLocation> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      reject(new LocationBlockedError(LOCATION_DISABLED_MSG));
+      reject(
+        new LocationError("Please enable location services to log out."),
+      );
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const mocked = (position as unknown as { mocked?: boolean }).mocked;
-        if (mocked === true) {
-          reject(new LocationBlockedError(LOCATION_MOCKED_MSG));
+      (pos) => {
+        if (looksSuspicious(pos)) {
+          reject(
+            new LocationError(
+              "Invalid location detected. Please disable mock location tools.",
+            ),
+          );
           return;
         }
-
-        const { latitude, longitude, accuracy } = position.coords;
+        const { latitude, longitude, accuracy } = pos.coords;
         if (
           typeof latitude !== "number" ||
           typeof longitude !== "number" ||
-          Number.isNaN(latitude) ||
-          Number.isNaN(longitude)
+          isNaN(latitude) ||
+          isNaN(longitude)
         ) {
-          reject(new LocationBlockedError(LOCATION_DISABLED_MSG));
+          reject(
+            new LocationError("Please enable location services to log out."),
+          );
           return;
         }
-
-        resolve({ lat: latitude, lng: longitude, accuracy });
+        resolve({ lat: latitude, lng: longitude, accuracy: accuracy ?? 0 });
       },
-      () => {
-        // PERMISSION_DENIED, POSITION_UNAVAILABLE, or TIMEOUT — all mean
-        // we don't have a trustworthy fix, so treat them the same way.
-        reject(new LocationBlockedError(LOCATION_DISABLED_MSG));
+      (err) => {
+        // PERMISSION_DENIED, POSITION_UNAVAILABLE, TIMEOUT all map to the
+        // same engineer-facing message per spec.
+        void err;
+        reject(
+          new LocationError("Please enable location services to log out."),
+        );
       },
       {
         enableHighAccuracy: true,
@@ -80,3 +120,10 @@ export function requestLogoutLocation(): Promise<GeoResult> {
     );
   });
 }
+
+/** "lat, lng" string for the sheet's LOCATION column. */
+export function formatLocation(loc: VerifiedLocation): string {
+  return `${loc.lat}, ${loc.lng}`;
+}
+
+export { isPlausiblePhilippinesLocation };

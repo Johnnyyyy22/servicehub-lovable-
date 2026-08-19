@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { createPrimeableSound } from "@/lib/sound";
+import { getVerifiedLocation, formatLocation, LocationError } from "@/lib/geolocation";
 import {
   fetchDispatchJobs,
   updateJobStatus,
@@ -12,17 +13,11 @@ import {
   dayKey,
   CONFLICT,
   ROW_NOT_FOUND,
-  LOCATION_INVALID,
   STATUS_OPTIONS,
   type DispatchJob,
   type StatusOption,
   type Engineer,
 } from "@/lib/dispatch-api";
-import {
-  requestLogoutLocation,
-  formatLocation,
-  LocationBlockedError,
-} from "@/lib/geolocation";
 import {
   readLocks,
   setLock,
@@ -583,19 +578,20 @@ function DispatchPage() {
     // this login is being accepted.
     if (action === "login") loginChime.prime();
 
-    setSaving(job.rowId);
-    setError("");
-
-    // Logout requires a fresh, high-accuracy location fix before anything
-    // else happens. No location, no logout — this must block, not just warn.
-    let location: string | undefined;
+    // Logout requires a fresh, high-accuracy device location. This must
+    // happen before any optimistic UI update or lock write, so a blocked
+    // logout (services disabled, or a suspected mock-location tool)
+    // leaves nothing behind to roll back.
+    let logoutLocation: string | undefined;
     if (action === "logout") {
+      setSaving(job.rowId);
+      setError("");
       try {
-        const geo = await requestLogoutLocation();
-        location = formatLocation(geo);
+        const loc = await getVerifiedLocation();
+        logoutLocation = formatLocation(loc);
       } catch (e) {
         setError(
-          e instanceof LocationBlockedError
+          e instanceof LocationError
             ? e.message
             : "Please enable location services to log out.",
         );
@@ -604,6 +600,8 @@ function DispatchPage() {
       }
     }
 
+    setSaving(job.rowId);
+    setError("");
     if (!(await verifyRowOwnership(job))) {
       setError(
         `Couldn't confirm this row still belongs to ${job.account} — the schedule may have changed. Tap Refresh and try again.`,
@@ -619,7 +617,11 @@ function DispatchPage() {
       action,
       time: stamp,
       ...(action === "logout"
-        ? { status, date: at.toLocaleDateString("en-US"), location }
+        ? {
+            status,
+            date: at.toLocaleDateString("en-US"),
+            location: logoutLocation,
+          }
         : {}),
       engineer,
       notify: 1,
@@ -679,7 +681,7 @@ function DispatchPage() {
         job.model,
         action === "logout" ? status : undefined,
         undefined,
-        action === "logout" ? location : undefined,
+        action === "logout" ? logoutLocation : undefined,
       );
       inFlight.current.delete(job.rowId + action);
 
@@ -721,23 +723,6 @@ function DispatchPage() {
         }
         setError(
           `Couldn't confirm this row still belongs to ${job.account} — the schedule changed. Tap Refresh and try again.`,
-        );
-        logActivity(job.account, `${action} rejected`, false);
-        return;
-      }
-
-      if (result.result === LOCATION_INVALID) {
-        // Backend rejected the logout — nothing was written. Roll back
-        // the optimistic logout time so the UI matches reality.
-        if (action === "logout") {
-          setLogoutTimes((t) => {
-            const next = { ...t };
-            delete next[job.rowId];
-            return next;
-          });
-        }
-        setError(
-          "Invalid location detected. Please disable mock location tools.",
         );
         logActivity(job.account, `${action} rejected`, false);
         return;

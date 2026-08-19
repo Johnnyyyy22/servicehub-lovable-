@@ -203,7 +203,7 @@ export type QueueItem = {
   date?: string;
   account?: string;
   machine?: string;
-  /** "lat, lng" captured at logout — required by the backend for logout rows. */
+  /** "lat, lng" captured at logout time — see src/lib/geolocation.ts. */
   location?: string;
 };
 
