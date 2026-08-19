@@ -407,8 +407,6 @@ export async function logJobTime(
   machine: string,
   status?: string,
   force?: boolean,
-  /** "lat, lng" written to the sheet's LOCATION column (M) on logout. */
-  location?: string,
 ) {
   const now = new Date();
   return postToScript({
@@ -420,7 +418,6 @@ export async function logJobTime(
     ...(action === "logout" ? { date: now.toLocaleDateString("en-US") } : {}),
     ...(status ? { status } : {}),
     ...(force ? { force: 1 } : {}),
-    ...(location ? { location } : {}),
     notify: 1,
   });
 }
