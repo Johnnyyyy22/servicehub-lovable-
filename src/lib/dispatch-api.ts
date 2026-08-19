@@ -31,12 +31,21 @@ export type Engineer = { id: string; name: string; email: string };
 /** Reads the signed-in engineer from localStorage, or null. */
 export function getEngineer(): Engineer | null {
   if (typeof localStorage === "undefined") return null;
-  const id = localStorage.getItem("EngineerID") ?? localStorage.getItem("engineerID") ?? "";
+  const id =
+    localStorage.getItem("EngineerID") ??
+    localStorage.getItem("engineerID") ??
+    "";
   if (!id.trim()) return null;
   return {
     id,
-    name: localStorage.getItem("EngineerName") ?? localStorage.getItem("engineerName") ?? "",
-    email: localStorage.getItem("engineerEmail") ?? localStorage.getItem("EngineerEmail") ?? "",
+    name:
+      localStorage.getItem("EngineerName") ??
+      localStorage.getItem("engineerName") ??
+      "",
+    email:
+      localStorage.getItem("engineerEmail") ??
+      localStorage.getItem("EngineerEmail") ??
+      "",
   };
 }
 
@@ -59,9 +68,56 @@ function isBlank(row: Row) {
   return row.every((c) => String(c ?? "").trim() === "");
 }
 
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * fetch() with a hard timeout via AbortController. Plain fetch() has no
+ * built-in timeout — on a weak-but-not-fully-dead signal (the realistic
+ * "no internet" case in the field: radio on, no real connectivity) it can
+ * hang for a long time before the browser gives up on its own, well past
+ * what an engineer standing at a client site will wait for. Aborting after
+ * a few seconds means a dead connection fails FAST and falls through to
+ * the offline queue immediately, instead of leaving the UI looking frozen.
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  ms = 6000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Races a promise against a timeout, throwing if the timeout wins. Used so
+ * a dead connection doesn't leave the login screen hanging through
+ * fetchLoginRows' full internal retry sequence before falling back to an
+ * offline sign-in. */
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 async function getRows(params: Record<string, string> = {}): Promise<Row[]> {
   const qs = new URLSearchParams({ ...params, t: String(Date.now()) });
-  const res = await fetch(`${SHEET_URL}?${qs}`);
+  const res = await fetchWithTimeout(`${SHEET_URL}?${qs}`);
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
   const text = await res.text();
   let parsed: unknown;
@@ -73,11 +129,59 @@ async function getRows(params: Record<string, string> = {}): Promise<Row[]> {
   return toRows(parsed).filter((r) => !isBlank(r));
 }
 
-/** Users tab: [EngineerID, EngineerName, Username, Password] */
+/**
+ * Pings the Apps Script and WAITS for it to respond before returning.
+ * This ensures the script is fully awake before the login fetch fires.
+ * Times out after 8 seconds — if the ping itself fails or times out,
+ * we proceed anyway (better a slow login than a broken one).
+ */
+async function warmUpScript(): Promise<void> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    await fetch(`${SHEET_URL}?ping=1&t=${String(Date.now())}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+  } catch {
+    // Ping failed or timed out — proceed anyway, login will retry on empty result.
+  }
+}
+
+/** Users tab: [EngineerID, EngineerName, Username, Password]
+ *
+ * Strategy:
+ * 1. Warm up the script first (await the ping — not fire-and-forget).
+ * 2. Fetch the Users tab. If the result is empty (script was still cold
+ *    despite the ping), wait 2 seconds and try once more.
+ * 3. Return the rows, skipping a header row if present.
+ *
+ * This eliminates both the "Checking..." hang and the false
+ * "Invalid login" on first click caused by Apps Script cold starts.
+ */
 export async function fetchLoginRows(): Promise<Row[]> {
-  let rows = await getRows({ sheet: "Users tab" });
+  // Step 1: wait for the script to wake up before attempting the real fetch.
+  await warmUpScript();
+
+  // Step 2: fetch with one automatic retry on empty result.
+  let rows = await getRows({ sheet: "Users tab" }).catch(() => [] as Row[]);
+
+  if (!rows.length) {
+    // Script may still be warming — wait 2s and try once more.
+    await sleep(2000);
+    rows = await getRows({ sheet: "Users tab" });
+  }
+
+  // Fallback: try default sheet if Users tab returned nothing at all.
   if (!rows.length) rows = await getRows();
-  if (rows.length && String(rows[0]?.[0] ?? "").toLowerCase().includes("engineer")) {
+
+  // Skip header row if present.
+  if (
+    rows.length &&
+    String(rows[0]?.[0] ?? "")
+      .toLowerCase()
+      .includes("engineer")
+  ) {
     return rows.slice(1);
   }
   return rows;
@@ -94,24 +198,33 @@ export type DispatchJob = {
   status: string;
   logIn: string;
   logOut: string;
+  /** Raw value of the sheet's Date column, unparsed. Use dayKey() to compare. */
+  date: string;
 };
 
 /**
+ * Normalizes a date-ish value (a sheet cell or a JS Date) to a "YYYY-MM-DD"
+ * key using LOCAL time, so same-day comparisons aren't thrown off by the UTC
+ * offset in Apps Script's ISO strings. Returns "" when the value is blank or
+ * can't be parsed — callers should treat that as "unknown" and fail open
+ * (i.e. still show the row) rather than silently hiding real assignments.
+ */
+export function dayKey(value: string | Date): string {
+  const d = value instanceof Date ? value : new Date(String(value).trim());
+  if (isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Fixed column layout returned by the Apps Script's doGet(), which always
- * starts reading at sheet row 2 (columns A–L): Date, Engineer ID, EE Name,
+ * starts reading at sheet row 2 (columns A-L): Date, Engineer ID, EE Name,
  * Area, Account, Machine Model, Purpose, Remarks, STATUS, LOG IN, LOG OUT,
  * TIME SPENT. The header row (row 1) is never included in the response,
  * so column order is guaranteed and jobs are always read by fixed
  * position here.
- *
- * A previous version tried to detect a header row by scanning the first
- * row's text for words like "account" or "machine" — but a normal Purpose
- * value such as "Check Machine" contains the word "machine" too, so it
- * kept misidentifying the very first real data row as a header. That row
- * was silently dropped, and every other job had Account/Purpose/Remarks
- * mapped to nothing (blank) while Machine Model picked up the Purpose
- * text instead. Reading by fixed position removes that failure mode
- * entirely.
  */
 const COL = {
   date: 0,
@@ -133,12 +246,39 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
   const rows = await getRows({ sheet: "Daily Dispatch" });
   if (!rows.length) return [];
 
-  const pick = (row: Row, i: number) => (i >= 0 ? String(row[i] ?? "").trim() : "");
+  const pick = (row: Row, i: number) =>
+    i >= 0 ? String(row[i] ?? "").trim() : "";
 
-  // rows[i] is always sheet row (i + 2) since row 1 is never returned, so
-  // the row id posted back must be (i + 1) to match the script's
-  // `r = Number(p.row) + 1`.
+  // Time values from the sheet arrive as ISO strings (e.g. "2026-08-12T07:49:57.000Z")
+  // after a refresh or sign-out. Format them back to a readable 12-hour time so the
+  // app displays "3:49:57 PM" instead of the raw UTC string.
+  const pickTime = (row: Row, i: number): string => {
+    if (i < 0) return "";
+    const raw = row[i];
+    if (!raw) return "";
+    const s = String(raw).trim();
+    if (!s) return "";
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
+    }
+    // Already a formatted time string (e.g. "3:49:57 PM") — return as-is.
+    return s;
+  };
+
   return rows.map((row, i) => ({
+    // rows[0] is sheet row 2 (the Apps Script's doGet() already strips the
+    // header row before this array reaches us). The write endpoint's
+    // doPost() computes `r = Number(p.row) + 1` — it already adds its own
+    // +1 to convert this into a real sheet row. So rowId = i+1 is correct:
+    // i=0 -> rowId "1" -> backend r = 2 (sheet row 2). Do NOT change this
+    // to i+2 without also removing the backend's own +1, or every write
+    // will land one row past its target.
     rowId: String(i + 1),
     engineerId: pick(row, COL.engineerId),
     engineer: pick(row, COL.engineer),
@@ -147,8 +287,9 @@ export async function fetchDispatchJobs(): Promise<DispatchJob[]> {
     purpose: pick(row, COL.purpose),
     remarks: pick(row, COL.remarks),
     status: pick(row, COL.status),
-    logIn: pick(row, COL.logIn),
-    logOut: pick(row, COL.logOut),
+    logIn: pickTime(row, COL.logIn),
+    logOut: pickTime(row, COL.logOut),
+    date: pick(row, COL.date),
   }));
 }
 
@@ -164,10 +305,14 @@ export type PostResult = {
 };
 
 export const CONFLICT = "ALREADY_LOGGED_IN";
+/** The backend couldn't find a row matching this engineer + account —
+ * the schedule changed since this job list loaded. The write was
+ * refused rather than risk landing on someone else's row. */
+export const ROW_NOT_FOUND = "ROW_NOT_FOUND";
 
 /**
  * Single POST helper for every script call. Always attaches the engineer's
- * identity and an explicit `notify` flag. Falls back to an opaque no-cors
+ * identity and an explicit notify flag. Falls back to an opaque no-cors
  * request when CORS blocks reading the response.
  */
 export async function postToScript(
@@ -180,15 +325,13 @@ export async function postToScript(
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") body.set(key, String(value));
   }
-  // Identity travels both as a JSON blob and as flat fields so the script can
-  // read whichever shape it prefers.
   body.set("engineer", JSON.stringify(identity));
   body.set("engineerId", identity.id);
   body.set("engineerName", identity.name);
   body.set("engineerEmail", identity.email);
 
   try {
-    const res = await fetch(API, {
+    const res = await fetchWithTimeout(API, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
@@ -204,15 +347,30 @@ export async function postToScript(
       notified = /notify\s*[:=]\s*"?ok/i.test(text);
     }
     const conflict = result.toUpperCase().includes(CONFLICT);
-    return { ok: res.ok && !conflict, result: conflict ? CONFLICT : result, notified, acked: true };
+    const notFound = result.toUpperCase().includes(ROW_NOT_FOUND);
+    return {
+      ok: res.ok && !conflict && !notFound,
+      result: conflict ? CONFLICT : notFound ? ROW_NOT_FOUND : result,
+      notified,
+      acked: true,
+    };
   } catch {
-    // Opaque fallback: the write still lands, we just cannot read the echo.
-    await fetch(API, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
+    // Opaque fallback: on some networks the main request fails (CORS,
+    // preflight quirks) even though the script would have received it.
+    // Try once more, no-cors, but with the SAME timeout guard — if the
+    // connection is actually dead, this must not hang either. Any
+    // failure here (including a timeout) propagates up so the caller
+    // queues the write for later instead of waiting forever.
+    await fetchWithTimeout(
+      API,
+      {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      },
+      6000,
+    );
     return { ok: true, result: "sent", notified: false, acked: false };
   }
 }
@@ -226,11 +384,18 @@ export function stampTime(at: Date = new Date()) {
   });
 }
 
-export async function updateJobStatus(rowId: string, status: StatusOption) {
+export async function updateJobStatus(
+  rowId: string,
+  status: StatusOption,
+  account: string,
+  machine: string,
+) {
   return postToScript({
     row: rowId,
     action: "status",
     status,
+    account,
+    machine,
     notify: shouldNotifyStatus(status) ? 1 : 0,
   });
 }
@@ -238,6 +403,8 @@ export async function updateJobStatus(rowId: string, status: StatusOption) {
 export async function logJobTime(
   rowId: string,
   action: "login" | "logout",
+  account: string,
+  machine: string,
   status?: string,
   force?: boolean,
 ) {
@@ -245,6 +412,8 @@ export async function logJobTime(
   return postToScript({
     row: rowId,
     action,
+    account,
+    machine,
     time: stampTime(now),
     ...(action === "logout" ? { date: now.toLocaleDateString("en-US") } : {}),
     ...(status ? { status } : {}),
