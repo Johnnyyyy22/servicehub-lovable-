@@ -309,6 +309,10 @@ export const CONFLICT = "ALREADY_LOGGED_IN";
  * the schedule changed since this job list loaded. The write was
  * refused rather than risk landing on someone else's row. */
 export const ROW_NOT_FOUND = "ROW_NOT_FOUND";
+/** The backend rejected a logout because the location was missing or
+ * implausible (outside the expected Philippines bounds). Nothing was
+ * written — the logout must be retried with a valid fix. */
+export const LOCATION_INVALID = "LOCATION_INVALID";
 
 /**
  * Single POST helper for every script call. Always attaches the engineer's
@@ -348,9 +352,16 @@ export async function postToScript(
     }
     const conflict = result.toUpperCase().includes(CONFLICT);
     const notFound = result.toUpperCase().includes(ROW_NOT_FOUND);
+    const locationInvalid = result.toUpperCase().includes(LOCATION_INVALID);
     return {
-      ok: res.ok && !conflict && !notFound,
-      result: conflict ? CONFLICT : notFound ? ROW_NOT_FOUND : result,
+      ok: res.ok && !conflict && !notFound && !locationInvalid,
+      result: conflict
+        ? CONFLICT
+        : notFound
+          ? ROW_NOT_FOUND
+          : locationInvalid
+            ? LOCATION_INVALID
+            : result,
       notified,
       acked: true,
     };
@@ -407,7 +418,8 @@ export async function logJobTime(
   machine: string,
   status?: string,
   force?: boolean,
-  location?: { text: string; lat: number; lng: number; accuracy: number },
+  /** "lat, lng" — required for logout, ignored for login. */
+  location?: string,
 ) {
   const now = new Date();
   return postToScript({
@@ -419,14 +431,7 @@ export async function logJobTime(
     ...(action === "logout" ? { date: now.toLocaleDateString("en-US") } : {}),
     ...(status ? { status } : {}),
     ...(force ? { force: 1 } : {}),
-    ...(location
-      ? {
-          location: location.text,
-          lat: location.lat,
-          lng: location.lng,
-          accuracy: location.accuracy,
-        }
-      : {}),
+    ...(location ? { location } : {}),
     notify: 1,
   });
 }

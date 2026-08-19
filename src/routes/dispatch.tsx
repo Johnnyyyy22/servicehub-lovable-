@@ -12,11 +12,17 @@ import {
   dayKey,
   CONFLICT,
   ROW_NOT_FOUND,
+  LOCATION_INVALID,
   STATUS_OPTIONS,
   type DispatchJob,
   type StatusOption,
   type Engineer,
 } from "@/lib/dispatch-api";
+import {
+  requestLogoutLocation,
+  formatLocation,
+  LocationBlockedError,
+} from "@/lib/geolocation";
 import {
   readLocks,
   setLock,
@@ -579,6 +585,25 @@ function DispatchPage() {
 
     setSaving(job.rowId);
     setError("");
+
+    // Logout requires a fresh, high-accuracy location fix before anything
+    // else happens. No location, no logout — this must block, not just warn.
+    let location: string | undefined;
+    if (action === "logout") {
+      try {
+        const geo = await requestLogoutLocation();
+        location = formatLocation(geo);
+      } catch (e) {
+        setError(
+          e instanceof LocationBlockedError
+            ? e.message
+            : "Please enable location services to log out.",
+        );
+        setSaving(null);
+        return;
+      }
+    }
+
     if (!(await verifyRowOwnership(job))) {
       setError(
         `Couldn't confirm this row still belongs to ${job.account} — the schedule may have changed. Tap Refresh and try again.`,
@@ -589,46 +614,12 @@ function DispatchPage() {
 
     const at = new Date();
     const stamp = stampTime(at);
-
-    // Logout requires a verified, high-accuracy, non-mocked fix.
-    let fix: Coords | null = null;
-    if (action === "logout") {
-      try {
-        fix = await getVerifiedLocation();
-      } catch (e) {
-        const message =
-          e instanceof Error
-            ? e.message
-            : "Please enable location services to log out.";
-        setError(message);
-        toast.warning(message, { className: "border-amber-500" });
-        setSaving(null);
-        return;
-      }
-    }
-    const location = fix
-      ? {
-          text: formatCoords(fix),
-          lat: fix.lat,
-          lng: fix.lng,
-          accuracy: fix.accuracy,
-        }
-      : undefined;
-
     const pending = {
       row: job.rowId,
       action,
       time: stamp,
       ...(action === "logout"
-        ? { status, date: at.toLocaleDateString("en-US") }
-        : {}),
-      ...(location
-        ? {
-            location: location.text,
-            lat: location.lat,
-            lng: location.lng,
-            accuracy: location.accuracy,
-          }
+        ? { status, date: at.toLocaleDateString("en-US"), location }
         : {}),
       engineer,
       notify: 1,
@@ -687,8 +678,8 @@ function DispatchPage() {
         job.account,
         job.model,
         action === "logout" ? status : undefined,
-        false,
-        location,
+        undefined,
+        action === "logout" ? location : undefined,
       );
       inFlight.current.delete(job.rowId + action);
 
@@ -730,6 +721,23 @@ function DispatchPage() {
         }
         setError(
           `Couldn't confirm this row still belongs to ${job.account} — the schedule changed. Tap Refresh and try again.`,
+        );
+        logActivity(job.account, `${action} rejected`, false);
+        return;
+      }
+
+      if (result.result === LOCATION_INVALID) {
+        // Backend rejected the logout — nothing was written. Roll back
+        // the optimistic logout time so the UI matches reality.
+        if (action === "logout") {
+          setLogoutTimes((t) => {
+            const next = { ...t };
+            delete next[job.rowId];
+            return next;
+          });
+        }
+        setError(
+          "Invalid location detected. Please disable mock location tools.",
         );
         logActivity(job.account, `${action} rejected`, false);
         return;

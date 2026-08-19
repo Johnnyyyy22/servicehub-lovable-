@@ -1,75 +1,82 @@
 /**
- * Real-time location capture for logout, with basic anti-spoofing checks.
+ * Logout location capture.
  *
- * The browser can't tell us definitively that a fix is genuine, so we use
- * the signals it does expose: high-accuracy mode, a plausible accuracy
- * radius, a fresh (non-cached) timestamp, and coordinates inside the
- * Philippines. Anything outside those bounds is treated as suspicious.
+ * Requires high-accuracy GPS and blocks logout when location can't be
+ * trusted. Mirrors what the engineer sees, so keep the two error messages
+ * in sync with the copy used in dispatch.tsx.
  */
 
-export type Coords = { lat: number; lng: number; accuracy: number };
+export const LOCATION_DISABLED_MSG =
+  "Please enable location services to log out.";
+export const LOCATION_MOCKED_MSG =
+  "Invalid location detected. Please disable mock location tools.";
 
-export class LocationError extends Error {}
+export class LocationBlockedError extends Error {}
 
-/** Rough bounding box for the Philippines. */
-const PH_BOUNDS = { minLat: 4.2, maxLat: 21.5, minLng: 116.0, maxLng: 127.0 };
-
-const MSG = {
-  disabled: "Please enable location services to log out.",
-  spoofed: "Invalid location detected. Please disable mock location tools.",
-  failed: "Couldn't get your location. Please try again outdoors.",
+export type GeoResult = {
+  lat: number;
+  lng: number;
+  accuracy: number;
 };
 
-function looksMocked(pos: GeolocationPosition): boolean {
-  const c = pos.coords as GeolocationCoordinates & { mocked?: boolean };
-  if (c.mocked === true) return true;
-  // Fresh fixes only — a timestamp far in the past means a cached/injected fix.
-  if (Math.abs(Date.now() - pos.timestamp) > 60_000) return true;
-  // Perfectly round zero-accuracy readings are typical of fake GPS apps.
-  if (!Number.isFinite(c.accuracy) || c.accuracy <= 0) return true;
-  if (c.latitude === 0 && c.longitude === 0) return true;
-  if (
-    c.latitude < PH_BOUNDS.minLat ||
-    c.latitude > PH_BOUNDS.maxLat ||
-    c.longitude < PH_BOUNDS.minLng ||
-    c.longitude > PH_BOUNDS.maxLng
-  )
-    return true;
-  return false;
+/** "lat, lng" — the exact format the sheet's LOCATION column expects. */
+export function formatLocation(loc: GeoResult): string {
+  return `${loc.lat}, ${loc.lng}`;
 }
 
-/** Resolves with a verified high-accuracy fix, or throws a LocationError. */
-export function getVerifiedLocation(): Promise<Coords> {
+/**
+ * Requests a fresh, high-accuracy position for a logout.
+ *
+ * Rejects with LocationBlockedError (message already set to the right
+ * user-facing copy) whenever the position can't be captured OR looks
+ * spoofed, so callers can just show err.message and stop.
+ *
+ * Note on mock-location detection: the standard web Geolocation API does
+ * not expose a reliable "this is fake" signal — that's an OS/app-level
+ * concept, not something a browser can always see. Some Android WebViews
+ * surface a non-standard `mocked` boolean on the position object when a
+ * mock-location app is active; when present, we honor it. This is a
+ * best-effort check, not a guarantee — real anti-spoofing has to happen
+ * server-side (see the Apps Script bounds check).
+ */
+export function requestLogoutLocation(): Promise<GeoResult> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      reject(new LocationError(MSG.disabled));
+      reject(new LocationBlockedError(LOCATION_DISABLED_MSG));
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (looksMocked(pos)) {
-          reject(new LocationError(MSG.spoofed));
+      (position) => {
+        const mocked = (position as unknown as { mocked?: boolean }).mocked;
+        if (mocked === true) {
+          reject(new LocationBlockedError(LOCATION_MOCKED_MSG));
           return;
         }
-        resolve({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        });
+
+        const { latitude, longitude, accuracy } = position.coords;
+        if (
+          typeof latitude !== "number" ||
+          typeof longitude !== "number" ||
+          Number.isNaN(latitude) ||
+          Number.isNaN(longitude)
+        ) {
+          reject(new LocationBlockedError(LOCATION_DISABLED_MSG));
+          return;
+        }
+
+        resolve({ lat: latitude, lng: longitude, accuracy });
       },
-      (err) => {
-        reject(
-          new LocationError(
-            err.code === err.PERMISSION_DENIED ? MSG.disabled : MSG.failed,
-          ),
-        );
+      () => {
+        // PERMISSION_DENIED, POSITION_UNAVAILABLE, or TIMEOUT — all mean
+        // we don't have a trustworthy fix, so treat them the same way.
+        reject(new LocationBlockedError(LOCATION_DISABLED_MSG));
       },
-      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      },
     );
   });
-}
-
-/** "14.567890, 121.045678" — the value written to the sheet's LOCATION column. */
-export function formatCoords(c: Coords): string {
-  return `${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`;
 }
