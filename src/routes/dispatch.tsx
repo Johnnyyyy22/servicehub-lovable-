@@ -1193,14 +1193,25 @@ function DispatchPage() {
                         <Button
                           variant="outline"
                           className="h-12 w-full text-base font-medium"
-                          disabled={!picked[job.rowId] || busy}
+                          disabled={
+                            !picked[job.rowId] ||
+                            busy ||
+                            locating === job.rowId
+                          }
                           onClick={() => handleLog(job, "logout")}
                         >
-                          {busy
-                            ? "Saving…"
-                            : unconfirmed
-                              ? "Resume / Log out"
-                              : "Log out"}
+                          {locating === job.rowId ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                              Getting location…
+                            </span>
+                          ) : busy ? (
+                            "Saving…"
+                          ) : unconfirmed ? (
+                            "Resume / Log out"
+                          ) : (
+                            "Log out"
+                          )}
                         </Button>
                       )}
                       {loggedOut && (
@@ -1386,15 +1397,25 @@ function DispatchPage() {
                                 size="sm"
                                 variant="outline"
                                 disabled={
-                                  !loggedIn || !picked[job.rowId] || busy
+                                  !loggedIn ||
+                                  !picked[job.rowId] ||
+                                  busy ||
+                                  locating === job.rowId
                                 }
                                 onClick={() => handleLog(job, "logout")}
                               >
-                                {busy
-                                  ? "Saving…"
-                                  : unconfirmed
-                                    ? "Resume / Log out"
-                                    : "Log out"}
+                                {locating === job.rowId ? (
+                                  <span className="flex items-center gap-2">
+                                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                    Locating…
+                                  </span>
+                                ) : busy ? (
+                                  "Saving…"
+                                ) : unconfirmed ? (
+                                  "Resume / Log out"
+                                ) : (
+                                  "Log out"
+                                )}
                               </Button>
                             )}
                           </td>
