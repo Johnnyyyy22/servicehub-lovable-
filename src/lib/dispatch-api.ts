@@ -407,6 +407,7 @@ export async function logJobTime(
   machine: string,
   status?: string,
   force?: boolean,
+  location?: { text: string; lat: number; lng: number; accuracy: number },
 ) {
   const now = new Date();
   return postToScript({
@@ -418,6 +419,14 @@ export async function logJobTime(
     ...(action === "logout" ? { date: now.toLocaleDateString("en-US") } : {}),
     ...(status ? { status } : {}),
     ...(force ? { force: 1 } : {}),
+    ...(location
+      ? {
+          location: location.text,
+          lat: location.lat,
+          lng: location.lng,
+          accuracy: location.accuracy,
+        }
+      : {}),
     notify: 1,
   });
 }

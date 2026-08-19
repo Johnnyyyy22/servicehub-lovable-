@@ -203,6 +203,11 @@ export type QueueItem = {
   date?: string;
   account?: string;
   machine?: string;
+  /** "lat, lng" written to the sheet's LOCATION column (M) on logout. */
+  location?: string;
+  lat?: number;
+  lng?: number;
+  accuracy?: number;
 };
 
 /** 15s, 30s, 1m, 2m, 5m — the last delay repeats until MAX_ATTEMPTS. */
@@ -264,6 +269,14 @@ export async function sendQueueItem(
       ...(item.status ? { status: item.status } : {}),
       ...(item.date ? { date: item.date } : {}),
       ...(item.force ? { force: item.force } : {}),
+      ...(item.location
+        ? {
+            location: item.location,
+            lat: item.lat,
+            lng: item.lng,
+            accuracy: item.accuracy,
+          }
+        : {}),
       notify: item.notify,
     });
     return result;
