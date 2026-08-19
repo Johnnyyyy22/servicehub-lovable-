@@ -589,12 +589,46 @@ function DispatchPage() {
 
     const at = new Date();
     const stamp = stampTime(at);
+
+    // Logout requires a verified, high-accuracy, non-mocked fix.
+    let fix: Coords | null = null;
+    if (action === "logout") {
+      try {
+        fix = await getVerifiedLocation();
+      } catch (e) {
+        const message =
+          e instanceof Error
+            ? e.message
+            : "Please enable location services to log out.";
+        setError(message);
+        toast.warning(message, { className: "border-amber-500" });
+        setSaving(null);
+        return;
+      }
+    }
+    const location = fix
+      ? {
+          text: formatCoords(fix),
+          lat: fix.lat,
+          lng: fix.lng,
+          accuracy: fix.accuracy,
+        }
+      : undefined;
+
     const pending = {
       row: job.rowId,
       action,
       time: stamp,
       ...(action === "logout"
         ? { status, date: at.toLocaleDateString("en-US") }
+        : {}),
+      ...(location
+        ? {
+            location: location.text,
+            lat: location.lat,
+            lng: location.lng,
+            accuracy: location.accuracy,
+          }
         : {}),
       engineer,
       notify: 1,
@@ -653,6 +687,8 @@ function DispatchPage() {
         job.account,
         job.model,
         action === "logout" ? status : undefined,
+        false,
+        location,
       );
       inFlight.current.delete(job.rowId + action);
 
