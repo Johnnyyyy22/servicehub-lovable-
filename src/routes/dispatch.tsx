@@ -36,6 +36,11 @@ import {
   type LockMap,
   type QueueItem,
 } from "@/lib/dispatch-store";
+import {
+  getVerifiedLocation,
+  formatCoords,
+  LocationError,
+} from "@/lib/geolocation";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -140,6 +145,8 @@ function DispatchPage() {
   const [now, setNow] = useState<Date | null>(null);
   const [loginTimes, setLoginTimes] = useState<Record<string, string>>({});
   const [logoutTimes, setLogoutTimes] = useState<Record<string, string>>({});
+  /** Row currently waiting on a GPS fix (logout only). */
+  const [locating, setLocating] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loginAt, setLoginAt] = useState<Record<string, number>>({});
   const [duration, setDuration] = useState<Record<string, string>>({});
@@ -571,6 +578,26 @@ function DispatchPage() {
       return;
     }
 
+    // Logout requires a verified, high-accuracy real-time location.
+    let location: string | undefined;
+    if (action === "logout") {
+      setLocating(job.rowId);
+      setError("");
+      try {
+        location = formatCoords(await getVerifiedLocation());
+      } catch (e) {
+        const message =
+          e instanceof LocationError
+            ? e.message
+            : "Couldn't get your location. Please try again.";
+        setError(message);
+        toast.error(message, { className: "border-amber-500" });
+        setLocating(null);
+        return;
+      }
+      setLocating(null);
+    }
+
     // Prime here, synchronously, before any await — this is what actually
     // satisfies the browser's gesture requirement. The real, audible
     // play() happens below, only once the ownership check has confirmed
@@ -594,7 +621,7 @@ function DispatchPage() {
       action,
       time: stamp,
       ...(action === "logout"
-        ? { status, date: at.toLocaleDateString("en-US") }
+        ? { status, date: at.toLocaleDateString("en-US"), location }
         : {}),
       engineer,
       notify: 1,
@@ -653,6 +680,8 @@ function DispatchPage() {
         job.account,
         job.model,
         action === "logout" ? status : undefined,
+        undefined,
+        location,
       );
       inFlight.current.delete(job.rowId + action);
 
