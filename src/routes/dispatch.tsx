@@ -36,6 +36,11 @@ import {
   type LockMap,
   type QueueItem,
 } from "@/lib/dispatch-store";
+import {
+  getVerifiedLocation,
+  formatCoords,
+  LocationError,
+} from "@/lib/geolocation";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -140,6 +145,8 @@ function DispatchPage() {
   const [now, setNow] = useState<Date | null>(null);
   const [loginTimes, setLoginTimes] = useState<Record<string, string>>({});
   const [logoutTimes, setLogoutTimes] = useState<Record<string, string>>({});
+  /** Row currently waiting on a GPS fix (logout only). */
+  const [locating, setLocating] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loginAt, setLoginAt] = useState<Record<string, number>>({});
   const [duration, setDuration] = useState<Record<string, string>>({});
@@ -571,6 +578,26 @@ function DispatchPage() {
       return;
     }
 
+    // Logout requires a verified, high-accuracy real-time location.
+    let location: string | undefined;
+    if (action === "logout") {
+      setLocating(job.rowId);
+      setError("");
+      try {
+        location = formatCoords(await getVerifiedLocation());
+      } catch (e) {
+        const message =
+          e instanceof LocationError
+            ? e.message
+            : "Couldn't get your location. Please try again.";
+        setError(message);
+        toast.error(message, { className: "border-amber-500" });
+        setLocating(null);
+        return;
+      }
+      setLocating(null);
+    }
+
     // Prime here, synchronously, before any await — this is what actually
     // satisfies the browser's gesture requirement. The real, audible
     // play() happens below, only once the ownership check has confirmed
@@ -594,7 +621,7 @@ function DispatchPage() {
       action,
       time: stamp,
       ...(action === "logout"
-        ? { status, date: at.toLocaleDateString("en-US") }
+        ? { status, date: at.toLocaleDateString("en-US"), location }
         : {}),
       engineer,
       notify: 1,
@@ -653,6 +680,8 @@ function DispatchPage() {
         job.account,
         job.model,
         action === "logout" ? status : undefined,
+        undefined,
+        location,
       );
       inFlight.current.delete(job.rowId + action);
 
@@ -1164,14 +1193,25 @@ function DispatchPage() {
                         <Button
                           variant="outline"
                           className="h-12 w-full text-base font-medium"
-                          disabled={!picked[job.rowId] || busy}
+                          disabled={
+                            !picked[job.rowId] ||
+                            busy ||
+                            locating === job.rowId
+                          }
                           onClick={() => handleLog(job, "logout")}
                         >
-                          {busy
-                            ? "Saving…"
-                            : unconfirmed
-                              ? "Resume / Log out"
-                              : "Log out"}
+                          {locating === job.rowId ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                              Getting location…
+                            </span>
+                          ) : busy ? (
+                            "Saving…"
+                          ) : unconfirmed ? (
+                            "Resume / Log out"
+                          ) : (
+                            "Log out"
+                          )}
                         </Button>
                       )}
                       {loggedOut && (
@@ -1357,15 +1397,25 @@ function DispatchPage() {
                                 size="sm"
                                 variant="outline"
                                 disabled={
-                                  !loggedIn || !picked[job.rowId] || busy
+                                  !loggedIn ||
+                                  !picked[job.rowId] ||
+                                  busy ||
+                                  locating === job.rowId
                                 }
                                 onClick={() => handleLog(job, "logout")}
                               >
-                                {busy
-                                  ? "Saving…"
-                                  : unconfirmed
-                                    ? "Resume / Log out"
-                                    : "Log out"}
+                                {locating === job.rowId ? (
+                                  <span className="flex items-center gap-2">
+                                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                    Locating…
+                                  </span>
+                                ) : busy ? (
+                                  "Saving…"
+                                ) : unconfirmed ? (
+                                  "Resume / Log out"
+                                ) : (
+                                  "Log out"
+                                )}
                               </Button>
                             )}
                           </td>
